@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { 
   Plane, Wrench, Clock, AlertCircle, CheckCircle2, Calendar, 
@@ -49,19 +50,27 @@ const App: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [activeTab, setActiveTab] = useState<'dashboard' | 'analytics' | 'history' | 'new_report'>('dashboard');
-  const [isDarkMode, setIsDarkMode] = useState(true);
   
-  const toggleTheme = () => setIsDarkMode(!isDarkMode);
+  // Logic: Default light mode on mobile, only desktop can use dark mode
+  const [isDarkMode, setIsDarkMode] = useState(() => window.innerWidth >= 1024);
+  const [isRentalModalOpen, setIsRentalModalOpen] = useState(false);
+  
+  const toggleTheme = () => {
+    // Only allow toggle if not on mobile
+    if (window.innerWidth >= 1024) {
+      setIsDarkMode(!isDarkMode);
+    }
+  };
 
   useEffect(() => {
-    const checkMobile = () => {
+    const handleResize = () => {
       if (window.innerWidth < 1024) {
-        setActiveTab('new_report');
+        setIsDarkMode(false); // Force light mode on mobile
       }
     };
-    checkMobile();
-    window.addEventListener('resize', checkMobile);
-    return () => window.removeEventListener('resize', checkMobile);
+    handleResize(); // Run on mount
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
   }, []);
 
   const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0]);
@@ -80,6 +89,7 @@ const App: React.FC = () => {
   const [leaders, setLeaders] = useState<any[]>([]);
   const [airlines, setAirlines] = useState<string[]>([]);
   const [allFlights, setAllFlights] = useState<any[]>([]);
+  const [allRentalsInPeriod, setAllRentalsInPeriod] = useState<any[]>([]);
   const [analyticsData, setAnalyticsData] = useState<any>({ 
     monthlyFlights: 0, avgTurnaround: 0, rentalCount: 0, 
     rentalHours: 0, chartData: []
@@ -168,6 +178,7 @@ const App: React.FC = () => {
       if (periodData) {
         let fCount = 0, tMins = 0, fWithT = 0, rCount = 0, rMins = 0;
         const fList: any[] = [];
+        const rList: any[] = [];
         const countsByDate: Record<string, number> = {};
 
         periodData.forEach((curr: any) => {
@@ -175,6 +186,7 @@ const App: React.FC = () => {
             rCount += curr.locacoes.length;
             curr.locacoes.forEach((loc: any) => {
               rMins += getDurationMinutes(loc.inicio, loc.fim);
+              rList.push({ ...loc, parentDate: curr.data, parentShift: curr.turno, parentLider: curr.lider });
             });
           }
 
@@ -206,6 +218,7 @@ const App: React.FC = () => {
           chartData
         });
         setAllFlights(fList);
+        setAllRentalsInPeriod(rList);
       }
     } catch (err) {
       console.error(err);
@@ -237,7 +250,7 @@ const App: React.FC = () => {
       const voosParaSalvar = formFlights
         .filter(v => (v.companhia === 'OUTROS' ? v.manual_name : v.companhia))
         .map(v => ({
-          companhia: v.companhia === 'OUTROS' ? (v.manual_name?.toUpperCase() || 'OUTROS') : v.companhia,
+          companhia: v.companhia === 'OUTROS' ? (v.manual_name || 'OUTROS') : v.companhia,
           numero: v.numero || 'S/N',
           pouso: v.pouso || null,
           reboque: v.reboque || null
@@ -268,35 +281,13 @@ const App: React.FC = () => {
         equipamento_retornado_nome: formGseIn.ativo ? formGseIn.prefixo : null
       };
 
-      // 1. SALVA NA TABELA QUE ATIVA O WEBHOOK NO SUPABASE (Database Webhook)
-      const { error: activatorErr } = await supabase
-        .from('relatorios_entrega_turno')
-        .insert([reportPayload]);
-
-      if (activatorErr) {
-        console.error("Erro ao salvar na tabela de ativação:", activatorErr);
-      }
-
-      // 2. SALVA NA TABELA CONSOLIDADA (Dashboard UI)
       const { error: consolidatedErr } = await supabase
         .from('relatorios_consolidados')
         .insert([reportPayload]);
 
       if (consolidatedErr) throw consolidatedErr;
 
-      // 3. DISPARO DO WEBHOOK VIA FETCH (URL DE PRODUÇÃO)
-      try {
-        const testWebhookUrl = 'https://teca-admin-n8n.ly7t0m.easypanel.host/webhook/e4eb976b-e3b7-40e7-b069-56c3162c9f70';
-        fetch(testWebhookUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ record: reportPayload })
-        }).catch(err => console.warn("Webhook direct fetch error (silenced):", err));
-      } catch (webhookErr) {
-        console.warn("Webhook production call failed (likely CORS), ignoring as data is already in DB:", webhookErr);
-      }
-
-      alert("Relatório salvo! A automação foi disparada via banco de dados.");
+      alert("Relatório salvo com sucesso!");
       resetForm();
       if (window.innerWidth >= 1024) {
         setSelectedDate(formDate);
@@ -356,7 +347,7 @@ const App: React.FC = () => {
 
         <div className="flex items-center gap-2 md:gap-3">
            <div className={`lg:hidden flex ${isDarkMode ? 'bg-[#0f172a]' : 'bg-slate-100'} p-1 rounded-sm border ${themeClasses.border} gap-1`}>
-              <button disabled className={`p-2 rounded-sm ${activeTab === 'new_report' ? 'bg-white text-slate-950' : 'text-slate-500'}`}><PlusSquare size={16}/></button>
+              <button onClick={() => setActiveTab('new_report')} className={`p-2 rounded-sm ${activeTab === 'new_report' ? 'bg-white text-slate-950' : 'text-slate-500'}`}><PlusSquare size={16}/></button>
            </div>
 
            {(activeTab === 'dashboard' || activeTab === 'history') && window.innerWidth >= 1024 && (
@@ -379,7 +370,8 @@ const App: React.FC = () => {
            )}
 
            <div className="flex items-center gap-1.5">
-              <button onClick={toggleTheme} className={`p-2 md:p-2.5 ${isDarkMode ? 'bg-[#0f172a]' : 'bg-slate-100'} border ${themeClasses.border} rounded-sm hover:border-blue-500 transition-all text-slate-400 hover:text-blue-500`}>
+              {/* Hide theme toggle on mobile as per request: Only light mode on mobile */}
+              <button onClick={toggleTheme} className={`hidden lg:flex p-2 md:p-2.5 ${isDarkMode ? 'bg-[#0f172a]' : 'bg-slate-100'} border ${themeClasses.border} rounded-sm hover:border-blue-500 transition-all text-slate-400 hover:text-blue-500`}>
                 {isDarkMode ? <Sun size={16} /> : <Moon size={16} />}
               </button>
               <button onClick={() => fetchData()} className={`p-2 md:p-2.5 ${isDarkMode ? 'bg-[#0f172a]' : 'bg-slate-100'} border ${themeClasses.border} rounded-sm hover:border-blue-500 transition-all text-slate-400 hover:text-blue-500`}>
@@ -407,7 +399,7 @@ const App: React.FC = () => {
                           <div className={`${isDarkMode ? 'bg-slate-800' : 'bg-slate-100'} p-2 rounded-sm transition-colors duration-300`}><HardHat size={16} className="md:size-[18px] text-blue-500"/></div>
                           <div>
                             <p className={`text-[6px] md:text-[7px] font-black ${themeClasses.textMuted} uppercase italic tracking-widest mb-0.5`}>Responsável</p>
-                            <p className={`text-[10px] md:text-xs font-black italic uppercase tracking-tighter ${isDarkMode ? 'text-blue-100' : 'text-slate-900'}`}>{report.lider}</p>
+                            <p className={`text-[10px] md:text-xs font-black italic tracking-tighter ${isDarkMode ? 'text-blue-100' : 'text-slate-900'}`}>{report.lider}</p>
                           </div>
                         </div>
                      </div>
@@ -418,10 +410,10 @@ const App: React.FC = () => {
                             <div className="flex items-center gap-4 md:gap-6">
                               <div className={`${isDarkMode ? 'bg-[#0f172a]' : 'bg-slate-100'} p-4 border ${themeClasses.border} rounded-sm text-blue-500 group-hover:bg-blue-600 group-hover:text-white transition-all`}><Plane size={24}/></div>
                               <div>
-                                <h3 className={`text-xl md:text-2xl font-black italic uppercase tracking-tighter ${themeClasses.textHeader}`}>{voo.companhia}</h3>
+                                <h3 className={`text-xl md:text-2xl font-black italic tracking-tighter ${themeClasses.textHeader}`}>{voo.companhia}</h3>
                                 <div className="flex items-center gap-3 md:gap-4 mt-1 md:mt-1.5">
-                                  <div className={`flex items-center gap-1.5 text-[8px] md:text-[9px] font-black uppercase ${themeClasses.textMuted} italic`}><Clock size={10} className="text-blue-600"/> In: <span className={isDarkMode ? 'text-white' : 'text-slate-900'}>{voo.pouso}</span></div>
-                                  <div className={`flex items-center gap-1.5 text-[8px] md:text-[9px] font-black uppercase ${themeClasses.textMuted} italic`}><div className="w-1.5 h-1.5 rounded-full bg-emerald-500"></div> Out: <span className={isDarkMode ? 'text-white' : 'text-slate-900'}>{voo.reboque}</span></div>
+                                  <div className={`flex items-center gap-1.5 text-[8px] md:text-[9px] font-black uppercase ${themeClasses.textMuted} italic`}><Clock size={10} className="text-blue-600"/> Início: <span className={isDarkMode ? 'text-white' : 'text-slate-900'}>{voo.pouso}</span></div>
+                                  <div className={`flex items-center gap-1.5 text-[8px] md:text-[9px] font-black uppercase ${themeClasses.textMuted} italic`}><div className="w-1.5 h-1.5 rounded-full bg-emerald-500"></div> Fim: <span className={isDarkMode ? 'text-white' : 'text-slate-900'}>{voo.reboque}</span></div>
                                 </div>
                               </div>
                             </div>
@@ -442,14 +434,14 @@ const App: React.FC = () => {
                              <div className="text-amber-500"><AlertCircle size={14} className="md:size-4"/></div>
                              <h4 className="text-[9px] md:text-[10px] font-black uppercase italic tracking-[0.2em] text-amber-500">Pendências</h4>
                           </div>
-                          <p className={`text-[10px] md:text-[11px] font-bold ${isDarkMode ? 'text-slate-400' : 'text-slate-600'} italic leading-snug uppercase`}>{report.descricao_pendencias || "Nenhuma pendência"}</p>
+                          <p className={`text-[10px] md:text-[11px] font-bold ${isDarkMode ? 'text-slate-400' : 'text-slate-600'} italic leading-snug`}>{report.descricao_pendencias || "Nenhuma pendência"}</p>
                         </div>
                         <div className={`${isDarkMode ? 'bg-[#0f172a]/30 border-white/5' : 'bg-white border-slate-200'} border p-4 md:p-6 rounded-sm min-h-[100px] md:min-h-[140px] shadow-sm`}>
                           <div className="flex items-center gap-2 mb-3 md:mb-4">
                              <div className="text-slate-500"><ShieldAlert size={14} className="md:size-4"/></div>
                              <h4 className={`text-[9px] md:text-[10px] font-black uppercase italic tracking-[0.2em] ${themeClasses.textMuted}`}>Ocorrências</h4>
                           </div>
-                          <p className={`text-[10px] md:text-[11px] font-bold ${isDarkMode ? 'text-slate-600' : 'text-slate-500'} italic leading-snug uppercase`}>{report.descricao_ocorrencias || "Não"}</p>
+                          <p className={`text-[10px] md:text-[11px] font-bold ${isDarkMode ? 'text-slate-600' : 'text-slate-500'} italic leading-snug`}>{report.descricao_ocorrencias || "Não"}</p>
                         </div>
                      </div>
                   </div>
@@ -459,7 +451,7 @@ const App: React.FC = () => {
                         <div className="flex-1 overflow-y-auto space-y-3 custom-scrollbar">
                           {report.locacoes && Array.isArray(report.locacoes) && report.locacoes.length > 0 ? report.locacoes.map((loc: any, lIdx: number) => (
                             <div key={lIdx} className={`${isDarkMode ? 'bg-[#020617] border-white/5' : 'bg-slate-50 border-slate-100'} p-4 border rounded-sm`}>
-                               <p className="text-sm font-black italic text-blue-500 uppercase">{loc.equipamento}</p>
+                               <p className="text-sm font-black italic text-blue-500">{loc.equipamento}</p>
                                <p className={`text-[9px] font-black ${themeClasses.textMuted} uppercase mt-1 italic`}>Duração: {loc.inicio} - {loc.fim}</p>
                             </div>
                           )) : (
@@ -505,22 +497,22 @@ const App: React.FC = () => {
                <div className={`flex-none flex flex-col md:flex-row items-end gap-4 ${isDarkMode ? 'bg-[#0f172a]/30' : 'bg-white'} p-4 border ${themeClasses.border} rounded-sm shadow-sm transition-colors duration-300`}>
                   <div className="flex flex-col gap-1.5 flex-1 w-full">
                     <label className="text-[8px] font-black text-blue-500 uppercase tracking-widest italic">Início do Período</label>
-                    <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className={`${themeClasses.bgInput} border ${themeClasses.border} p-2.5 font-black ${isDarkMode ? 'text-white' : 'text-slate-900'} text-xs rounded-sm uppercase italic focus:border-blue-500 outline-none w-full transition-colors duration-300`} />
+                    <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className={`${themeClasses.bgInput} border ${themeClasses.border} p-2.5 font-black ${isDarkMode ? 'text-white' : 'text-slate-900'} text-xs rounded-sm focus:border-blue-500 outline-none w-full transition-colors duration-300`} />
                   </div>
                   <div className="flex flex-col gap-1.5 flex-1 w-full">
                     <label className="text-[8px] font-black text-blue-500 uppercase tracking-widest italic">Fim do Período</label>
-                    <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className={`${themeClasses.bgInput} border ${themeClasses.border} p-2.5 font-black ${isDarkMode ? 'text-white' : 'text-slate-900'} text-xs rounded-sm uppercase italic focus:border-blue-500 outline-none w-full transition-colors duration-300`} />
+                    <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className={`${themeClasses.bgInput} border ${themeClasses.border} p-2.5 font-black ${isDarkMode ? 'text-white' : 'text-slate-900'} text-xs rounded-sm focus:border-blue-500 outline-none w-full transition-colors duration-300`} />
                   </div>
                   <div className="flex flex-col gap-1.5 flex-1 w-full">
                     <label className="text-[8px] font-black text-blue-500 uppercase tracking-widest italic">Filtro CIA</label>
-                    <select value={analyticsAirline} onChange={e => setAnalyticsAirline(e.target.value)} className={`${themeClasses.bgInput} border ${themeClasses.border} p-2.5 font-black ${isDarkMode ? 'text-white' : 'text-slate-900'} text-xs rounded-sm uppercase italic focus:border-blue-500 outline-none w-full appearance-none transition-colors duration-300`}>
+                    <select value={analyticsAirline} onChange={e => setAnalyticsAirline(e.target.value)} className={`${themeClasses.bgInput} border ${themeClasses.border} p-2.5 font-black ${isDarkMode ? 'text-white' : 'text-slate-900'} text-xs rounded-sm focus:border-blue-500 outline-none w-full appearance-none transition-colors duration-300`}>
                       <option value="todos">TODAS AS CIAS</option>
                       {airlines.map(cia => <option key={cia} value={cia}>{cia}</option>)}
                     </select>
                   </div>
                   <div className="flex flex-col gap-1.5 flex-1 w-full">
                     <label className="text-[8px] font-black text-blue-500 uppercase tracking-widest italic">Turno Filtro</label>
-                    <select value={analyticsShift} onChange={e => setAnalyticsShift(e.target.value as any)} className={`${themeClasses.bgInput} border ${themeClasses.border} p-2.5 font-black ${isDarkMode ? 'text-white' : 'text-slate-900'} text-xs rounded-sm uppercase italic focus:border-blue-500 outline-none w-full appearance-none transition-colors duration-300`}>
+                    <select value={analyticsShift} onChange={e => setAnalyticsShift(e.target.value as any)} className={`${themeClasses.bgInput} border ${themeClasses.border} p-2.5 font-black ${isDarkMode ? 'text-white' : 'text-slate-900'} text-xs rounded-sm focus:border-blue-500 outline-none w-full appearance-none transition-colors duration-300`}>
                       <option value="todos">TODOS OS TURNOS</option>
                       <option value="manha">MANHÃ</option>
                       <option value="tarde">TARDE</option>
@@ -532,16 +524,22 @@ const App: React.FC = () => {
 
                <div className="flex-none grid grid-cols-2 md:grid-cols-6 gap-3 md:gap-4">
                   {[ 
-                    { l: 'Voos', v: analyticsData.monthlyFlights, s: 'No período', c: 'blue' }, 
-                    { l: 'Média Solo', v: `${Math.floor(analyticsData.avgTurnaround / 60)}h ${analyticsData.avgTurnaround % 60}m`, s: 'Turnaround', c: 'neutral' }, 
-                    { l: 'Frota Total', v: fleetSummary.total, s: 'Equipamentos', c: 'neutral' },
-                    { l: 'Operantes', v: fleetSummary.op, s: 'Frota Ativa', c: 'emerald' }, 
-                    { l: 'Manutenção', v: fleetSummary.mt, s: 'Indisponíveis', c: 'rose' }, 
-                    { l: 'Locações', v: analyticsData.rentalCount, s: `${analyticsData.rentalHours}h totais`, c: 'blue' } 
+                    { l: 'Voos', v: analyticsData.monthlyFlights, s: 'No período', c: 'blue', isInteractive: true }, 
+                    { l: 'Média Solo', v: `${Math.floor(analyticsData.avgTurnaround / 60)}h ${analyticsData.avgTurnaround % 60}m`, s: 'Turnaround', c: 'neutral', isInteractive: true }, 
+                    { l: 'Frota Total', v: fleetSummary.total, s: 'Equipamentos', c: 'neutral', isInteractive: true },
+                    { l: 'Operantes', v: fleetSummary.op, s: 'Frota Ativa', c: 'emerald', isInteractive: true }, 
+                    { l: 'Manutenção', v: fleetSummary.mt, s: 'Indisponíveis', c: 'rose', isInteractive: true }, 
+                    { l: 'Locações', v: analyticsData.rentalCount, s: `${analyticsData.rentalHours}h totais`, c: 'blue', isInteractive: true, onClick: () => setIsRentalModalOpen(true) } 
                   ].map((k, i) => (
-                    <div key={i} className={`${isDarkMode ? 'bg-[#0f172a]/30' : 'bg-white'} border ${themeClasses.border} p-4 md:p-5 rounded-sm shadow-xl space-y-2 md:space-y-3 group hover:bg-blue-500/5 transition-all duration-300`}>
+                    <div 
+                      key={i} 
+                      onClick={k.onClick}
+                      className={`${isDarkMode ? 'bg-[#0f172a]/30' : 'bg-white'} border ${themeClasses.border} p-4 md:p-5 rounded-sm shadow-xl space-y-2 md:space-y-3 group hover:bg-blue-600/10 hover:border-blue-500/50 hover:-translate-y-1 transition-all duration-300 ${k.isInteractive ? 'cursor-pointer' : ''}`}
+                    >
                       <h4 className={`text-xl md:text-3xl font-black italic tracking-tighter tabular-nums leading-none ${k.c === 'emerald' ? 'text-emerald-500' : k.c === 'rose' ? 'text-rose-500' : k.c === 'blue' ? 'text-blue-500' : themeClasses.textHeader}`}>{k.v}</h4>
-                      <h4 className={`text-[7px] md:text-[8px] font-black ${themeClasses.textMuted} uppercase italic tracking-widest leading-none`}>{k.l}</h4>
+                      <h4 className={`text-[7px] md:text-[8px] font-black ${themeClasses.textMuted} uppercase italic tracking-widest leading-none flex items-center gap-1.5`}>
+                        {k.l} {k.isInteractive && <ExternalLink size={10} className="text-blue-500 opacity-0 group-hover:opacity-100 transition-opacity" />}
+                      </h4>
                       <p className={`text-[7px] md:text-[8px] font-bold ${isDarkMode ? 'text-slate-700' : 'text-slate-400'} uppercase italic leading-none`}>{k.s}</p>
                     </div>
                   ))}
@@ -576,8 +574,8 @@ const App: React.FC = () => {
                           <h4 className="flex-none text-[8px] md:text-[9px] font-black italic uppercase tracking-[0.2em] text-emerald-500 flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-emerald-500"></div> Operantes</h4>
                           <div className="flex-1 overflow-y-auto pr-1 space-y-2 custom-scrollbar">
                             {fleetDetails.filter(e => e.status === 'OPERACIONAL').map(e => (
-                              <div key={e.id} className={`${isDarkMode ? 'bg-[#020617]/50 border-r-2 border-emerald-500/0' : 'bg-slate-50 border-r-2 border-slate-100'} hover:border-emerald-500 p-2.5 transition-all flex justify-between items-center group`}>
-                                 <div><p className={`text-[10px] md:text-xs font-black italic uppercase tracking-tighter leading-none ${themeClasses.textHeader}`}>{e.prefixo}</p><p className={`text-[6px] md:text-[7px] font-bold ${isDarkMode ? 'text-slate-600' : 'text-slate-400'} uppercase italic mt-1 leading-none`}>{e.nome}</p></div>
+                              <div key={e.id} className={`${isDarkMode ? 'bg-[#020617]/50 border-r-2 border-emerald-500/0' : 'bg-slate-50 border-r-2 border-slate-100'} hover:border-emerald-500 p-2.5 transition-all flex justify-between items-center group cursor-default`}>
+                                 <div><p className={`text-[10px] md:text-xs font-black italic tracking-tighter leading-none ${themeClasses.textHeader}`}>{e.prefixo}</p><p className={`text-[6px] md:text-[7px] font-bold ${isDarkMode ? 'text-slate-600' : 'text-slate-400'} uppercase italic mt-1 leading-none`}>{e.nome}</p></div>
                                  <div className="w-1 h-1 rounded-full bg-emerald-500/30 group-hover:bg-emerald-500 transition-all"></div>
                               </div>
                             ))}
@@ -587,8 +585,8 @@ const App: React.FC = () => {
                           <h4 className="flex-none text-[8px] md:text-[9px] font-black italic uppercase tracking-[0.2em] text-rose-500 flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-rose-500"></div> Manutenção</h4>
                           <div className="flex-1 overflow-y-auto pr-1 space-y-2 custom-scrollbar">
                             {fleetDetails.filter(e => e.status === 'MANUTENCAO').map(e => (
-                              <div key={e.id} className={`${isDarkMode ? 'bg-[#020617]/50 border-r-2 border-rose-500/0' : 'bg-slate-50 border-r-2 border-slate-100'} hover:border-rose-500 p-2.5 transition-all flex justify-between items-center group`}>
-                                 <div><p className={`text-[10px] md:text-xs font-black italic uppercase tracking-tighter leading-none ${themeClasses.textHeader}`}>{e.prefixo}</p><p className={`text-[6px] md:text-[7px] font-bold ${isDarkMode ? 'text-slate-600' : 'text-slate-400'} uppercase italic mt-1 leading-none`}>{e.nome}</p></div>
+                              <div key={e.id} className={`${isDarkMode ? 'bg-[#020617]/50 border-r-2 border-rose-500/0' : 'bg-slate-50 border-r-2 border-slate-100'} hover:border-rose-500 p-2.5 transition-all flex justify-between items-center group cursor-default`}>
+                                 <div><p className={`text-[10px] md:text-xs font-black italic tracking-tighter leading-none ${themeClasses.textHeader}`}>{e.prefixo}</p><p className={`text-[6px] md:text-[7px] font-bold ${isDarkMode ? 'text-slate-600' : 'text-slate-400'} uppercase italic mt-1 leading-none`}>{e.nome}</p></div>
                                  <div className="w-1 h-1 rounded-full bg-rose-500/30 group-hover:bg-rose-500 transition-all"></div>
                               </div>
                             ))}
@@ -602,7 +600,7 @@ const App: React.FC = () => {
             <div className="animate-in slide-in-from-right-5 duration-500 h-full flex flex-col gap-4 md:gap-6 overflow-hidden">
                <div className="flex-none flex flex-col md:flex-row justify-between items-end gap-4 md:gap-6">
                   <div className="space-y-1"><h2 className={`text-3xl md:text-4xl font-black italic uppercase tracking-tighter ${themeClasses.textHeader}`}>Histórico Geral</h2><p className={`text-[8px] md:text-[9px] font-black ${themeClasses.textMuted} uppercase tracking-widest italic text-center md:text-left`}>Todos os voos processados na base</p></div>
-                  <div className={`${isDarkMode ? 'bg-[#0f172a]' : 'bg-white'} border ${themeClasses.border} flex items-center px-4 py-2 gap-3 w-full md:w-[350px] shadow-xl focus-within:border-blue-500 transition-all`}><Search size={16} className={themeClasses.textMuted} /><input type="text" placeholder="CIA OU LÍDER..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className={`bg-transparent border-none focus:ring-0 text-[10px] font-black uppercase w-full italic ${isDarkMode ? 'text-white' : 'text-slate-900'}`} /></div>
+                  <div className={`${isDarkMode ? 'bg-[#0f172a]' : 'bg-white'} border ${themeClasses.border} flex items-center px-4 py-2 gap-3 w-full md:w-[350px] shadow-xl focus-within:border-blue-500 transition-all`}><Search size={16} className={themeClasses.textMuted} /><input type="text" placeholder="CIA OU LÍDER..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className={`bg-transparent border-none focus:ring-0 text-[10px] font-black w-full italic ${isDarkMode ? 'text-white' : 'text-slate-900'}`} /></div>
                </div>
                <div className={`${themeClasses.bgCard} border ${themeClasses.border} shadow-2xl overflow-hidden flex flex-col transition-colors duration-300`}>
                   <div className={`flex-none grid grid-cols-6 ${isDarkMode ? 'bg-[#0f172a]' : 'bg-slate-100'} px-4 md:px-6 py-4 text-[8px] md:text-[9px] font-black ${themeClasses.textMuted} uppercase tracking-widest border-b ${themeClasses.border} italic`}>
@@ -612,7 +610,7 @@ const App: React.FC = () => {
                      {allFlights.length > 0 ? allFlights.filter(f => !searchQuery || JSON.stringify(f).toLowerCase().includes(searchQuery.toLowerCase())).map((v, i) => (
                        <div key={i} onClick={() => { setSelectedDate(v.parentDate); setSelectedShift(v.parentShift === 'manhã' ? 'manha' : v.parentShift); setActiveTab('dashboard'); }} className={`grid grid-cols-6 px-4 md:px-6 py-4 md:py-5 items-center hover:bg-blue-600/5 transition-all cursor-pointer group`}>
                           <div className="col-span-2 md:col-span-1"><p className={`text-xs md:text-sm font-black italic ${themeClasses.textHeader}`}>{v.parentDate.split('-').reverse().join('/')}</p><p className="text-[7px] md:text-[8px] font-bold text-blue-500 uppercase italic">{String(v.parentShift).toUpperCase()}</p></div>
-                          <div className="col-span-3 md:col-span-2 flex items-center gap-3 md:gap-4"><Plane size={16} className={`${isDarkMode ? 'text-slate-700' : 'text-slate-300'} group-hover:text-blue-500 transition-colors`} /><p className={`text-sm md:text-lg font-black italic tracking-tighter uppercase ${themeClasses.textHeader}`}>{v.companhia}</p></div>
+                          <div className="col-span-3 md:col-span-2 flex items-center gap-3 md:gap-4"><Plane size={16} className={`${isDarkMode ? 'text-slate-700' : 'text-slate-300'} group-hover:text-blue-500 transition-colors`} /><p className={`text-sm md:text-lg font-black italic tracking-tighter ${themeClasses.textHeader}`}>{v.companhia}</p></div>
                           <div className={`hidden md:block text-lg font-black italic tracking-tighter tabular-nums group-hover:text-blue-500 ${themeClasses.textHeader}`}>{calculateTurnaround(v.pouso, v.reboque)}</div>
                           <div className={`hidden md:block text-[9px] font-black ${themeClasses.textMuted} uppercase italic truncate pr-4`}>{v.parentLider}</div>
                           <div className="flex justify-end"><button className={`${isDarkMode ? 'bg-slate-800' : 'bg-slate-200'} px-3 md:px-4 py-1.5 md:py-2 text-[7px] md:text-[8px] font-black ${isDarkMode ? 'text-slate-400' : 'text-slate-600'} group-hover:bg-blue-600 group-hover:text-white transition-all uppercase italic`}>Ver</button></div>
@@ -627,7 +625,7 @@ const App: React.FC = () => {
                  <div className={`${isDarkMode ? 'bg-[#0f172a]/30' : 'bg-white'} border ${themeClasses.border} p-5 md:p-8 shadow-2xl flex flex-col md:flex-row md:flex-wrap gap-5 md:gap-8 items-stretch md:items-end rounded-sm transition-colors duration-300`}>
                     <div className="space-y-2">
                        <label className="text-[10px] font-black text-blue-500 uppercase tracking-widest italic leading-none">Data do Turno</label>
-                       <input type="date" value={formDate} onChange={e => setFormDate(e.target.value)} className={`${themeClasses.bgInput} border ${themeClasses.border} p-4 md:p-3.5 font-black ${isDarkMode ? 'text-white' : 'text-slate-900'} rounded-sm uppercase text-xs md:text-sm focus:border-blue-500 outline-none transition-colors duration-300`} />
+                       <input type="date" value={formDate} onChange={e => setFormDate(e.target.value)} className={`${themeClasses.bgInput} border ${themeClasses.border} p-4 md:p-3.5 font-black ${isDarkMode ? 'text-white' : 'text-slate-900'} rounded-sm text-xs md:text-sm focus:border-blue-500 outline-none transition-colors duration-300`} />
                     </div>
                     <div className="space-y-2">
                        <label className="text-[10px] font-black text-blue-500 uppercase tracking-widest italic leading-none">Turno</label>
@@ -639,8 +637,8 @@ const App: React.FC = () => {
                     </div>
                     <div className="flex-1 space-y-2">
                        <label className="text-[10px] font-black text-blue-500 uppercase tracking-widest italic leading-none">Líder Responsável</label>
-                       <select value={formLeader} onChange={e => setFormLeader(e.target.value)} className={`${themeClasses.bgInput} border ${themeClasses.border} p-4 md:p-3.5 font-black ${isDarkMode ? 'text-white' : 'text-slate-900'} w-full uppercase italic rounded-sm text-xs md:text-sm focus:border-blue-500 outline-none appearance-none transition-colors duration-300`}>
-                          <option value="">-- SELECIONE LÍDER --</option>
+                       <select value={formLeader} onChange={e => setFormLeader(e.target.value)} className={`${themeClasses.bgInput} border ${themeClasses.border} p-4 md:p-3.5 font-black ${isDarkMode ? 'text-white' : 'text-slate-900'} w-full italic rounded-sm text-xs md:text-sm focus:border-blue-500 outline-none appearance-none transition-colors duration-300`}>
+                          <option value="">-- Selecione o Líder --</option>
                           {leaders.map(l => <option key={l.id} value={l.nome}>{l.nome}</option>)}
                        </select>
                     </div>
@@ -662,11 +660,11 @@ const App: React.FC = () => {
                        <div className={`${isDarkMode ? 'bg-[#0f172a]/30' : 'bg-white'} border ${themeClasses.border} p-5 md:p-6 shadow-xl rounded-sm space-y-6 transition-colors duration-300`}>
                           <div className="space-y-2">
                              <label className="text-[10px] font-black text-amber-500 uppercase italic">2 - Pendências para o turno seguinte</label>
-                             <textarea value={formPendencias} onChange={e => setFormPendencias(e.target.value)} rows={3} className={`${themeClasses.bgInput} border ${themeClasses.border} p-4 font-bold text-sm md:text-xs rounded-sm ${isDarkMode ? 'text-slate-300' : 'text-slate-900'} w-full italic uppercase outline-none focus:border-amber-500/30 transition-colors duration-300`} placeholder="DESCREVA PENDÊNCIAS..."></textarea>
+                             <textarea value={formPendencias} onChange={e => setFormPendencias(e.target.value)} rows={3} className={`${themeClasses.bgInput} border ${themeClasses.border} p-4 font-bold text-sm md:text-xs rounded-sm ${isDarkMode ? 'text-slate-300' : 'text-slate-900'} w-full italic outline-none focus:border-amber-500/30 transition-colors duration-300`} placeholder="Descreva pendências aqui..."></textarea>
                           </div>
                           <div className="space-y-2">
                              <label className="text-[10px] font-black text-rose-500 uppercase italic">3 - Ocorrências / Avarias do Plantão</label>
-                             <textarea value={formOcorrencias} onChange={e => setFormOcorrencias(e.target.value)} rows={3} className={`${themeClasses.bgInput} border ${themeClasses.border} p-4 font-bold text-sm md:text-xs rounded-sm ${isDarkMode ? 'text-slate-300' : 'text-slate-900'} w-full italic uppercase outline-none focus:border-rose-500/30 transition-colors duration-300`} placeholder="DESCREVA OCORRÊNCIAS..."></textarea>
+                             <textarea value={formOcorrencias} onChange={e => setFormOcorrencias(e.target.value)} rows={3} className={`${themeClasses.bgInput} border ${themeClasses.border} p-4 font-bold text-sm md:text-xs rounded-sm ${isDarkMode ? 'text-slate-300' : 'text-slate-900'} w-full italic outline-none focus:border-rose-500/30 transition-colors duration-300`} placeholder="Descreva ocorrências aqui..."></textarea>
                           </div>
                        </div>
 
@@ -687,7 +685,7 @@ const App: React.FC = () => {
                                 <div className="space-y-3">
                                    <div className="space-y-1">
                                       <label className={`text-[7px] font-black ${themeClasses.textMuted} uppercase`}>Equipamento</label>
-                                      <input type="text" placeholder="EX: TRATOR KARL" value={loc.equipamento} onChange={e => handleRentalChange(i, 'equipamento', e.target.value.toUpperCase())} className={`${isDarkMode ? 'bg-slate-900' : 'bg-white'} border-none p-3 font-black text-xs w-full uppercase outline-none focus:ring-1 focus:ring-blue-500 italic rounded-sm`} />
+                                      <input type="text" placeholder="Ex: Trator Karl" value={loc.equipamento} onChange={e => handleRentalChange(i, 'equipamento', e.target.value)} className={`${isDarkMode ? 'bg-slate-900' : 'bg-white'} border-none p-3 font-black text-xs w-full outline-none focus:ring-1 focus:ring-blue-500 italic rounded-sm`} />
                                    </div>
                                    <div className="grid grid-cols-2 gap-3">
                                       <div className="space-y-1">
@@ -713,7 +711,7 @@ const App: React.FC = () => {
                     <div className="space-y-6 md:space-y-8">
                        <div className={`${isDarkMode ? 'bg-[#0f172a]/30' : 'bg-white'} border ${themeClasses.border} p-5 md:p-6 shadow-xl rounded-sm flex flex-col transition-colors duration-300`}>
                          <div className="flex justify-between items-center mb-6">
-                           <h4 className="text-[12px] md:text-[11px] font-black italic uppercase text-blue-500">5 - Log de CIAs</h4>
+                           <h4 className="text-[12px] md:text-[11px] font-black italic uppercase text-blue-500">5 - Log de Atendimentos</h4>
                            <button onClick={handleAddFlight} className="bg-blue-600 px-6 md:px-4 py-3 md:py-2 text-[11px] md:text-[9px] font-black uppercase italic rounded-sm shadow-lg active:scale-95 transition-all text-white">+ Inserir CIA</button>
                          </div>
                          <div className="space-y-4 max-h-[450px] md:max-h-[400px] overflow-y-auto pr-1 md:pr-2 custom-scrollbar">
@@ -723,7 +721,7 @@ const App: React.FC = () => {
                                <div className="flex flex-col md:grid md:grid-cols-4 gap-4">
                                  <div className="flex flex-col gap-1 md:col-span-2">
                                     <label className={`text-[8px] font-black ${themeClasses.textMuted} uppercase italic`}>Companhia</label>
-                                    <select value={v.companhia} onChange={e => handleFlightChange(i, 'companhia', e.target.value)} className={`${isDarkMode ? 'bg-slate-900' : 'bg-white'} border-none p-4 md:p-2 font-black text-xs w-full uppercase outline-none focus:ring-1 focus:ring-blue-500 italic appearance-none transition-colors duration-300`}>
+                                    <select value={v.companhia} onChange={e => handleFlightChange(i, 'companhia', e.target.value)} className={`${isDarkMode ? 'bg-slate-900' : 'bg-white'} border-none p-4 md:p-2 font-black text-xs w-full outline-none focus:ring-1 focus:ring-blue-500 italic appearance-none transition-colors duration-300`}>
                                       <option value="">-- CIA --</option>
                                       {airlines.map(cia => <option key={cia} value={cia}>{cia}</option>)}
                                       <option value="OUTROS">OUTROS (DIGITAR)</option>
@@ -741,7 +739,7 @@ const App: React.FC = () => {
                                {v.companhia === 'OUTROS' && (
                                  <div className="mt-3 md:mt-4 animate-in slide-in-from-top-1 flex flex-col gap-1">
                                     <label className="text-[8px] font-black text-amber-500 uppercase italic flex items-center gap-1.5"><Edit3 size={10}/> Digite o nome da Companhia</label>
-                                    <input type="text" placeholder="NOME DA CIA..." value={v.manual_name || ''} onChange={e => handleFlightChange(i, 'manual_name', e.target.value.toUpperCase())} className={`${isDarkMode ? 'bg-slate-900 border-amber-500/20' : 'bg-amber-50 border-amber-200'} border p-4 md:p-3 font-black text-sm w-full uppercase outline-none focus:border-amber-500 transition-all rounded-sm italic`} />
+                                    <input type="text" placeholder="NOME DA CIA..." value={v.manual_name || ''} onChange={e => handleFlightChange(i, 'manual_name', e.target.value)} className={`${isDarkMode ? 'bg-slate-900 border-amber-500/20' : 'bg-amber-50 border-amber-200'} border p-4 md:p-3 font-black text-sm w-full outline-none focus:border-amber-500 transition-all rounded-sm italic`} />
                                  </div>
                                )}
                              </div>
@@ -758,12 +756,12 @@ const App: React.FC = () => {
                             <div className="space-y-4 animate-in slide-in-from-top-2">
                                <div className="space-y-1">
                                   <label className={`text-[8px] font-black ${themeClasses.textMuted} uppercase italic`}>Equipamento (Operacional)</label>
-                                  <select value={formGseOut.prefixo} onChange={e => setFormGseOut({...formGseOut, prefixo: e.target.value})} className={`${themeClasses.bgInput} border ${themeClasses.border} p-4 font-black ${isDarkMode ? 'text-white' : 'text-slate-900'} text-sm w-full uppercase outline-none appearance-none italic transition-colors duration-300`}>
-                                     <option value="">-- SELECIONE EQUIPAMENTO --</option>
+                                  <select value={formGseOut.prefixo} onChange={e => setFormGseOut({...formGseOut, prefixo: e.target.value})} className={`${themeClasses.bgInput} border ${themeClasses.border} p-4 font-black ${isDarkMode ? 'text-white' : 'text-slate-900'} text-sm w-full outline-none appearance-none italic transition-colors duration-300`}>
+                                     <option value="">-- Selecione o Equipamento --</option>
                                      {fleetDetails.filter(e => e.status === 'OPERACIONAL').map(e => <option key={e.id} value={e.prefixo}>{e.prefixo} - {e.nome}</option>)}
                                   </select>
                                </div>
-                               <textarea placeholder="MOTIVO DA BAIXA..." value={formGseOut.motivo} onChange={e => setFormGseOut({...formGseOut, motivo: e.target.value.toUpperCase()})} rows={2} className={`${themeClasses.bgInput} border ${themeClasses.border} p-4 font-bold text-xs w-full italic uppercase outline-none ${isDarkMode ? 'text-white' : 'text-slate-900'} transition-colors duration-300`} />
+                               <textarea placeholder="Motivo da baixa técnica..." value={formGseOut.motivo} onChange={e => setFormGseOut({...formGseOut, motivo: e.target.value})} rows={2} className={`${themeClasses.bgInput} border ${themeClasses.border} p-4 font-bold text-xs w-full italic outline-none ${isDarkMode ? 'text-white' : 'text-slate-900'} transition-colors duration-300`} />
                             </div>
                           )}
                        </div>
@@ -776,8 +774,8 @@ const App: React.FC = () => {
                           {formGseIn.ativo && (
                             <div className="animate-in slide-in-from-top-2 space-y-1">
                                <label className={`text-[8px] font-black ${themeClasses.textMuted} uppercase italic`}>Equipamento (Em Manutenção)</label>
-                               <select value={formGseIn.prefixo} onChange={e => setFormGseIn({...formGseIn, prefixo: e.target.value})} className={`${themeClasses.bgInput} border ${themeClasses.border} p-4 font-black ${isDarkMode ? 'text-white' : 'text-slate-900'} text-sm w-full uppercase outline-none appearance-none italic transition-colors duration-300`}>
-                                  <option value="">-- SELECIONE EQUIPAMENTO --</option>
+                               <select value={formGseIn.prefixo} onChange={e => setFormGseIn({...formGseIn, prefixo: e.target.value})} className={`${themeClasses.bgInput} border ${themeClasses.border} p-4 font-black ${isDarkMode ? 'text-white' : 'text-slate-900'} text-sm w-full outline-none appearance-none italic transition-colors duration-300`}>
+                                  <option value="">-- Selecione o Equipamento --</option>
                                   {fleetDetails.filter(e => e.status === 'MANUTENCAO').map(e => <option key={e.id} value={e.prefixo}>{e.prefixo} - {e.nome}</option>)}
                                </select>
                             </div>
@@ -800,13 +798,60 @@ const App: React.FC = () => {
         </div>
       </main>
 
+      {/* RENTAL HISTORY MODAL */}
+      {isRentalModalOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={() => setIsRentalModalOpen(false)}></div>
+          <div className={`relative w-full max-w-2xl max-h-[80vh] ${themeClasses.bgCard} border ${themeClasses.border} shadow-2xl flex flex-col rounded-sm animate-in zoom-in-95 duration-200 overflow-hidden`}>
+            <div className="flex justify-between items-center p-6 border-b border-white/5">
+              <div className="flex items-center gap-3">
+                <Handshake size={20} className="text-blue-500" />
+                <h3 className="text-xl font-black italic uppercase tracking-tighter">Histórico de <span className="text-blue-500">Locações</span></h3>
+              </div>
+              <button onClick={() => setIsRentalModalOpen(false)} className="p-2 hover:bg-white/5 rounded-full transition-colors">
+                <X size={20} />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-6 custom-scrollbar">
+              {allRentalsInPeriod.length > 0 ? (
+                <div className="space-y-4">
+                  {allRentalsInPeriod.map((r, i) => (
+                    <div key={i} className={`${isDarkMode ? 'bg-[#020617] border-white/5' : 'bg-slate-50 border-slate-200'} border p-4 rounded-sm flex justify-between items-center`}>
+                      <div>
+                        <p className="text-sm font-black italic text-blue-500">{r.equipamento}</p>
+                        <div className="flex items-center gap-3 mt-1">
+                          <p className={`text-[9px] font-black ${themeClasses.textMuted} uppercase italic`}>Data: {r.parentDate.split('-').reverse().join('/')}</p>
+                          <p className={`text-[9px] font-black ${themeClasses.textMuted} uppercase italic`}>Líder: {r.parentLider}</p>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <p className={`text-sm font-black tabular-nums ${themeClasses.textHeader}`}>{r.inicio} - {r.fim}</p>
+                        <p className="text-[8px] font-black text-emerald-500 uppercase italic">Ativo no Turno</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="py-20 text-center opacity-20">
+                  <Handshake size={64} className="mx-auto mb-4" />
+                  <p className="text-sm font-black uppercase italic">Nenhuma locação no período selecionado</p>
+                </div>
+              )}
+            </div>
+            <div className="p-6 border-t border-white/5 flex justify-end">
+              <button onClick={() => setIsRentalModalOpen(false)} className="bg-blue-600 px-6 py-2.5 text-[11px] font-black text-white uppercase italic rounded-sm">Fechar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <footer className={`flex-none ${isDarkMode ? 'bg-[#020617] border-white/5' : 'bg-white border-slate-200'} border-t px-4 md:px-8 py-3 flex justify-between items-center text-[7px] md:text-[8px] font-black uppercase ${themeClasses.textMuted} tracking-[0.2em] italic transition-colors duration-300`}>
         <div className="flex gap-4 md:gap-10">
            <span className="flex items-center gap-1.5 md:gap-2"><div className="w-1 h-1 rounded-full bg-emerald-500 animate-pulse"></div> Sincronizado</span>
            <span className="flex items-center gap-1.5 md:gap-2"><div className="w-1 h-1 rounded-full bg-blue-500"></div> Real-time</span>
         </div>
         <div className="flex gap-4 md:gap-10 items-center">
-           <span className="hidden sm:inline">Ramp Controll Stable v15.2</span>
+           <span className="hidden sm:inline">Ramp Controll Stable v15.6</span>
            <span className="flex items-center gap-1.5 md:gap-2"><Zap size={10} className="text-blue-500"/> Secure Cloud Connection</span>
         </div>
       </footer>
