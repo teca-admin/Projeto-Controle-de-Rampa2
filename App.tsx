@@ -52,7 +52,10 @@ const isValidFlight = (v: any): boolean => {
 const App: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'analytics' | 'history' | 'new_report'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'analytics' | 'history' | 'new_report'>(() => {
+    // Inicializa na tela de lançamento se for mobile
+    return window.innerWidth < 1024 ? 'new_report' : 'dashboard';
+  });
   
   // Logic: Default light mode on mobile, only desktop can use dark mode
   const [isDarkMode, setIsDarkMode] = useState(() => window.innerWidth >= 1024);
@@ -69,6 +72,7 @@ const App: React.FC = () => {
     const handleResize = () => {
       if (window.innerWidth < 1024) {
         setIsDarkMode(false); // Force light mode on mobile
+        setActiveTab('new_report'); // Force Launch screen on mobile
       }
     };
     handleResize(); // Run on mount
@@ -385,10 +389,6 @@ const App: React.FC = () => {
         </nav>
 
         <div className="flex items-center gap-2 md:gap-3">
-           <div className={`lg:hidden flex ${isDarkMode ? 'bg-[#0f172a]' : 'bg-slate-100'} p-1 rounded-sm border ${themeClasses.border} gap-1`}>
-              <button onClick={() => setActiveTab('new_report')} className={`p-2 rounded-sm ${activeTab === 'new_report' ? 'bg-white text-slate-950' : 'text-slate-500'}`}><PlusSquare size={16}/></button>
-           </div>
-
            {(activeTab === 'dashboard' || activeTab === 'history') && window.innerWidth >= 1024 && (
              <div className={`hidden md:flex items-center ${isDarkMode ? 'bg-[#0f172a]' : 'bg-slate-100'} border ${themeClasses.border} rounded-sm divide-x ${isDarkMode ? 'divide-white/5' : 'divide-slate-200'}`}>
                 <div className="flex items-center px-3 py-1.5 gap-2">
