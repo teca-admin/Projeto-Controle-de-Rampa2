@@ -17,6 +17,9 @@ import {
   ResponsiveContainer, LabelList
 } from 'recharts';
 
+// --- CONFIG ---
+const WEBHOOK_URL = 'https://teca-admin-n8n.ly7t0m.easypanel.host/webhook/e4eb976b-e3b7-40e7-b069-56c3162c9f70';
+
 // --- HELPERS ---
 const timeToMinutes = (time?: any): number => {
   if (typeof time !== 'string' || !time) return 0;
@@ -281,13 +284,49 @@ const App: React.FC = () => {
         equipamento_retornado_nome: formGseIn.ativo ? formGseIn.prefixo : null
       };
 
+      // 1. Salvar no Supabase
       const { error: consolidatedErr } = await supabase
         .from('relatorios_consolidados')
         .insert([reportPayload]);
 
       if (consolidatedErr) throw consolidatedErr;
 
-      alert("Relatório salvo com sucesso!");
+      // 1.1 Atualizar Status dos Equipamentos se houver GSE Out/In
+      if (formGseOut.ativo && formGseOut.prefixo) {
+        await supabase
+          .from('equipamentos')
+          .update({ status: 'MANUTENCAO' })
+          .eq('prefixo', formGseOut.prefixo);
+      }
+
+      if (formGseIn.ativo && formGseIn.prefixo) {
+        await supabase
+          .from('equipamentos')
+          .update({ status: 'OPERACIONAL' })
+          .eq('prefixo', formGseIn.prefixo);
+      }
+
+      // 2. Acionar Webhook
+      try {
+        const response = await fetch(WEBHOOK_URL, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(reportPayload)
+        });
+        
+        if (!response.ok) {
+          console.error("Erro ao enviar para o webhook:", response.statusText);
+        } else {
+          console.log("Webhook acionado com sucesso!");
+        }
+      } catch (webhookErr) {
+        // Log do erro mas não trava o fluxo principal se o DB salvou
+        console.error("Falha na conexão com o webhook:", webhookErr);
+      }
+
+      alert("Relatório salvo e processado com sucesso!");
       resetForm();
       if (window.innerWidth >= 1024) {
         setSelectedDate(formDate);
