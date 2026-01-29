@@ -964,15 +964,15 @@ const App: React.FC = () => {
               {/* Stats Row */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className={`${isDarkMode ? 'bg-[#0f172a]/50' : 'bg-slate-50'} border ${themeClasses.border} p-6 rounded-sm text-center`}>
-                  <p className="text-4xl font-black italic tracking-tighter text-blue-500">{selectedDayReports.reduce((acc, r) => acc + (r.voos?.length || 0), 0)}</p>
+                  <p className="text-4xl font-black italic tracking-tighter text-white">{selectedDayReports.reduce((acc, r) => acc + (r.voos?.length || 0), 0)}</p>
                   <p className={`text-[8px] font-black ${themeClasses.textMuted} uppercase tracking-widest italic mt-1`}>Total de Atendimentos</p>
                 </div>
                 <div className={`${isDarkMode ? 'bg-[#0f172a]/50' : 'bg-slate-50'} border ${themeClasses.border} p-6 rounded-sm text-center`}>
-                  <p className="text-4xl font-black italic tracking-tighter text-emerald-500">{selectedDayReports.length}</p>
+                  <p className="text-4xl font-black italic tracking-tighter text-white">{selectedDayReports.length}</p>
                   <p className={`text-[8px] font-black ${themeClasses.textMuted} uppercase tracking-widest italic mt-1`}>Turnos Consolidados</p>
                 </div>
                 <div className={`${isDarkMode ? 'bg-[#0f172a]/50' : 'bg-slate-50'} border ${themeClasses.border} p-6 rounded-sm text-center`}>
-                  <p className="text-4xl font-black italic tracking-tighter text-amber-500">{selectedDayReports.filter(r => r.teve_falta || r.teve_atestado).length}</p>
+                  <p className="text-4xl font-black italic tracking-tighter text-white">{selectedDayReports.filter(r => r.teve_falta || r.teve_atestado).length}</p>
                   <p className={`text-[8px] font-black ${themeClasses.textMuted} uppercase tracking-widest italic mt-1`}>Alerta de RH</p>
                 </div>
               </div>
