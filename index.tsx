@@ -9,5 +9,7 @@ if (!rootElement) {
 }
 
 const root = ReactDOM.createRoot(rootElement);
-// Removemos o StrictMode temporariamente para garantir estabilidade com Recharts/ESM
 root.render(<App />);
+
+// Notifica o HTML que o React foi carregado para remover o fallback loader
+document.body.classList.add('loaded');

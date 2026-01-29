@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { 
   Plane, Wrench, Clock, AlertCircle, CheckCircle2, Calendar, 
@@ -53,7 +52,6 @@ const App: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [activeTab, setActiveTab] = useState<'dashboard' | 'analytics' | 'history' | 'new_report'>(() => {
-    // Inicializa na tela de lançamento se for mobile
     return window.innerWidth < 1024 ? 'new_report' : 'dashboard';
   });
   
@@ -207,12 +205,17 @@ const App: React.FC = () => {
           countsByDate[curr.data] = (countsByDate[curr.data] || 0) + dailyCountForThisReport;
         });
 
+        const weekdays = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'];
         const chartData = Object.entries(countsByDate)
-          .map(([date, count]) => ({ 
-            name: date.split('-').reverse().slice(0, 2).join('/'), 
-            voos: count,
-            rawDate: date
-          }))
+          .map(([date, count]) => {
+            const dObj = new Date(date + 'T12:00:00');
+            return { 
+              name: date.split('-').reverse().slice(0, 2).join('/'), 
+              weekday: weekdays[dObj.getDay()],
+              voos: count,
+              rawDate: date
+            };
+          })
           .sort((a, b) => a.rawDate.localeCompare(b.rawDate));
 
         setAnalyticsData({ 
@@ -354,7 +357,7 @@ const App: React.FC = () => {
           <div>
             <h1 className={`text-lg md:text-xl font-black tracking-tighter uppercase italic leading-none ${themeClasses.textHeader}`}>Ramp<span className="text-blue-500">Controll</span></h1>
             <p className="hidden md:flex text-[8px] font-black text-slate-500 uppercase tracking-widest mt-1 italic items-center gap-1">
-              <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse shadow-lg shadow-emerald-500/50"></div> Sincronismo Real
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse shadow-lg shadow-emerald-500/50"></span> Sincronismo Real
             </p>
           </div>
         </div>
@@ -437,7 +440,7 @@ const App: React.FC = () => {
                                 <h3 className={`text-xl md:text-2xl font-black italic tracking-tighter ${themeClasses.textHeader}`}>{voo.companhia}</h3>
                                 <div className="flex items-center gap-3 md:gap-4 mt-1 md:mt-1.5">
                                   <div className={`flex items-center gap-1.5 text-[8px] md:text-[9px] font-black uppercase ${themeClasses.textMuted} italic`}><Clock size={10} className="text-blue-600"/> Início: <span className={isDarkMode ? 'text-white' : 'text-slate-900'}>{voo.pouso}</span></div>
-                                  <div className={`flex items-center gap-1.5 text-[8px] md:text-[9px] font-black uppercase ${themeClasses.textMuted} italic`}><div className="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]"></div> Fim: <span className={isDarkMode ? 'text-white' : 'text-slate-900'}>{voo.reboque}</span></div>
+                                  <div className={`flex items-center gap-1.5 text-[8px] md:text-[9px] font-black uppercase ${themeClasses.textMuted} italic`}><span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]"></span> Fim: <span className={isDarkMode ? 'text-white' : 'text-slate-900'}>{voo.reboque}</span></div>
                                 </div>
                               </div>
                             </div>
@@ -579,13 +582,42 @@ const App: React.FC = () => {
                     </div>
                     <div className="flex-1 min-h-0">
                       <ResponsiveContainer width="100%" height="100%">
-                        <BarChart data={analyticsData.chartData} margin={{ top: 20, right: 30, left: 0, bottom: 0 }}>
+                        <BarChart data={analyticsData.chartData} margin={{ top: 20, right: 30, left: 0, bottom: 40 }}>
+                          <defs>
+                            <linearGradient id="barGradient" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="0%" stopColor="#3b82f6" stopOpacity={1}/>
+                              <stop offset="100%" stopColor="#1d4ed8" stopOpacity={0.7}/>
+                            </linearGradient>
+                          </defs>
                           <CartesianGrid strokeDasharray="3 3" stroke={isDarkMode ? "#ffffff05" : "#00000005"} vertical={false} />
-                          <XAxis dataKey="name" stroke={isDarkMode ? "#64748b" : "#94a3b8"} fontSize={9} fontStyle="italic" dy={5} axisLine={false} tickLine={false} />
+                          <XAxis 
+                            dataKey="name" 
+                            stroke={isDarkMode ? "#64748b" : "#94a3b8"} 
+                            fontSize={9} 
+                            height={60}
+                            fontStyle="italic" 
+                            dy={10} 
+                            axisLine={false} 
+                            tickLine={false}
+                            tick={(props) => {
+                              const { x, y, payload } = props;
+                              const item = analyticsData.chartData.find((d: any) => d.name === payload.value);
+                              return (
+                                <g transform={`translate(${x},${y})`}>
+                                  <text x={0} y={15} textAnchor="middle" fill={isDarkMode ? "#cbd5e1" : "#475569"} fontSize={10} fontStyle="italic" fontWeight="900">
+                                    {payload.value}
+                                  </text>
+                                  <text x={0} y={32} textAnchor="middle" fill={isDarkMode ? "#60a5fa" : "#2563eb"} fontSize={9} fontStyle="italic" fontWeight="bold" opacity={0.8}>
+                                    {item?.weekday?.toUpperCase()}
+                                  </text>
+                                </g>
+                              );
+                            }}
+                          />
                           <YAxis stroke={isDarkMode ? "#64748b" : "#94a3b8"} fontSize={9} axisLine={false} tickLine={false} />
                           <Tooltip contentStyle={{backgroundColor: isDarkMode ? '#1e293b' : '#ffffff', border: `1px solid ${isDarkMode ? '#334155' : '#e2e8f0'}`, fontSize: '9px', color: isDarkMode ? '#fff' : '#000'}} cursor={{fill: isDarkMode ? 'white' : 'blue', opacity: 0.05}} />
-                          <Bar dataKey="voos" fill="#2563eb" radius={[2, 2, 0, 0]} barSize={35}>
-                            <LabelList dataKey="voos" position="top" fill={isDarkMode ? "#ffffff" : "#2563eb"} style={{fontSize: '10px', fontWeight: '900', fontStyle: 'italic'}} dy={-10} />
+                          <Bar dataKey="voos" fill="url(#barGradient)" radius={[4, 4, 0, 0]} barSize={35}>
+                            <LabelList dataKey="voos" position="top" fill={isDarkMode ? "#ffffff" : "#2563eb"} style={{fontSize: '11px', fontWeight: '900', fontStyle: 'italic'}} dy={-10} />
                           </Bar>
                         </BarChart>
                       </ResponsiveContainer>
@@ -595,7 +627,7 @@ const App: React.FC = () => {
                      <div className="flex-none flex justify-between items-center mb-6 md:mb-8"><h3 className={`text-base md:text-lg font-black italic uppercase tracking-tighter flex items-center gap-3 ${themeClasses.textHeader}`}><Settings size={18} className="text-blue-500"/> Visão de Frota</h3></div>
                      <div className="flex-1 grid grid-cols-2 gap-4 md:gap-6 min-h-0">
                         <div className="flex flex-col gap-4 overflow-hidden">
-                          <h4 className="flex-none text-[8px] md:text-[9px] font-black italic uppercase tracking-[0.2em] text-emerald-500 flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-lg shadow-emerald-500/30"></div> Operantes</h4>
+                          <h4 className="flex-none text-[8px] md:text-[9px] font-black italic uppercase tracking-[0.2em] text-emerald-500 flex items-center gap-2"><span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-lg shadow-emerald-500/30"></span> Operantes</h4>
                           <div className="flex-1 overflow-y-auto pr-1 space-y-2 custom-scrollbar">
                             {fleetDetails.filter(e => e.status === 'OPERACIONAL').map(e => (
                               <div key={e.id} className={`${isDarkMode ? 'bg-[#0f172a]/30 border-r-2 border-emerald-500/0' : 'bg-slate-50 border-r-2 border-slate-100'} hover:border-emerald-500 p-2.5 transition-all flex justify-between items-center group cursor-default`}>
@@ -606,7 +638,7 @@ const App: React.FC = () => {
                           </div>
                         </div>
                         <div className="flex flex-col gap-4 overflow-hidden">
-                          <h4 className="flex-none text-[8px] md:text-[9px] font-black italic uppercase tracking-[0.2em] text-rose-500 flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-rose-500 shadow-lg shadow-rose-500/30"></div> Manutenção</h4>
+                          <h4 className="flex-none text-[8px] md:text-[9px] font-black italic uppercase tracking-[0.2em] text-rose-500 flex items-center gap-2"><span className="w-1.5 h-1.5 rounded-full bg-rose-500 shadow-lg shadow-rose-500/30"></span> Manutenção</h4>
                           <div className="flex-1 overflow-y-auto pr-1 space-y-2 custom-scrollbar">
                             {fleetDetails.filter(e => e.status === 'MANUTENCAO').map(e => (
                               <div key={e.id} className={`${isDarkMode ? 'bg-[#0f172a]/30 border-r-2 border-rose-500/0' : 'bg-slate-50 border-r-2 border-slate-100'} hover:border-rose-500 p-2.5 transition-all flex justify-between items-center group cursor-default`}>
@@ -871,8 +903,8 @@ const App: React.FC = () => {
 
       <footer className={`flex-none ${isDarkMode ? 'bg-[#0f172a] border-white/10' : 'bg-white border-slate-200'} border-t px-4 md:px-8 py-3 flex justify-between items-center text-[7px] md:text-[8px] font-black uppercase ${themeClasses.textMuted} tracking-[0.2em] italic transition-colors duration-300`}>
         <div className="flex gap-4 md:gap-10">
-           <span className="flex items-center gap-1.5 md:gap-2"><div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse shadow-lg shadow-emerald-500/30"></div> Sincronizado</span>
-           <span className="flex items-center gap-1.5 md:gap-2"><div className="w-1.5 h-1.5 rounded-full bg-blue-500 shadow-lg shadow-blue-500/30"></div> Real-time</span>
+           <span className="flex items-center gap-1.5 md:gap-2"><span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse shadow-lg shadow-emerald-500/30"></span> Sincronizado</span>
+           <span className="flex items-center gap-1.5 md:gap-2"><span className="w-1.5 h-1.5 rounded-full bg-blue-500 shadow-lg shadow-blue-500/30"></span> Real-time</span>
         </div>
         <div className="flex gap-4 md:gap-10 items-center">
            <span className="hidden sm:inline">Ramp Controll Stable v15.6</span>
