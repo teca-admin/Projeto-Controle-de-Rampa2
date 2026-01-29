@@ -7,13 +7,13 @@ import {
   Handshake, UserPlus, Settings, Search, ExternalLink, 
   PlusSquare, Plus, Trash2, Save, Share2,
   BarChart as BarChartIcon, Truck, Menu, X, Info,
-  Sun, Moon, Edit3, Send
+  Sun, Moon, Edit3, Send, ListTodo
 } from 'lucide-react';
 import { supabase } from './supabase';
 import { ShiftReport, Flight, FleetStat, Rental } from './types';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, 
-  ResponsiveContainer, LabelList
+  ResponsiveContainer, LabelList, ReferenceLine, Cell
 } from 'recharts';
 
 // --- CONFIG ---
@@ -57,6 +57,9 @@ const App: React.FC = () => {
   
   const [isDarkMode, setIsDarkMode] = useState(() => window.innerWidth >= 1024);
   const [isRentalModalOpen, setIsRentalModalOpen] = useState(false);
+  const [isDayDetailsModalOpen, setIsDayDetailsModalOpen] = useState(false);
+  const [selectedDayReports, setSelectedDayReports] = useState<any[]>([]);
+  const [selectedDayDateFormatted, setSelectedDayDateFormatted] = useState('');
   
   const toggleTheme = () => {
     if (window.innerWidth >= 1024) {
@@ -93,6 +96,7 @@ const App: React.FC = () => {
   const [airlines, setAirlines] = useState<string[]>([]);
   const [allFlights, setAllFlights] = useState<any[]>([]);
   const [allRentalsInPeriod, setAllRentalsInPeriod] = useState<any[]>([]);
+  const [rawReportsInPeriod, setRawReportsInPeriod] = useState<any[]>([]);
   const [analyticsData, setAnalyticsData] = useState<any>({ 
     monthlyFlights: 0, avgTurnaround: 0, rentalCount: 0, 
     rentalHours: 0, chartData: []
@@ -179,6 +183,7 @@ const App: React.FC = () => {
       const { data: periodData = [] } = await query.order('data', { ascending: false });
 
       if (periodData) {
+        setRawReportsInPeriod(periodData);
         let fCount = 0, tMins = 0, fWithT = 0, rCount = 0, rMins = 0;
         const fList: any[] = [];
         const rList: any[] = [];
@@ -250,6 +255,19 @@ const App: React.FC = () => {
     const al = fleetStats.find(s => s.status === 'ALUGADO')?.total || 0;
     return { op, mt, al, total: op + mt + al };
   }, [fleetStats]);
+
+  const averageFlights = useMemo(() => {
+    if (analyticsData.chartData.length === 0) return 0;
+    return analyticsData.monthlyFlights / analyticsData.chartData.length;
+  }, [analyticsData.chartData, analyticsData.monthlyFlights]);
+
+  const handleBarClick = (data: any) => {
+    if (!data || !data.rawDate) return;
+    const dayReports = rawReportsInPeriod.filter(r => r.data === data.rawDate);
+    setSelectedDayReports(dayReports);
+    setSelectedDayDateFormatted(`${data.name} (${data.weekday.toUpperCase()})`);
+    setIsDayDetailsModalOpen(true);
+  };
 
   const handleSaveReport = async () => {
     if (!formLeader) { alert("Selecione o Líder!"); return; }
@@ -561,7 +579,7 @@ const App: React.FC = () => {
                     <div 
                       key={i} 
                       onClick={k.onClick}
-                      className={`${isDarkMode ? 'bg-[#1e293b] border-white/10' : 'bg-white'} border ${themeClasses.border} p-4 md:p-5 rounded-sm shadow-2xl space-y-2 md:space-y-3 group hover:bg-blue-600/10 hover:border-blue-500/50 hover:-translate-y-1 transition-all duration-300 ${k.isInteractive ? 'cursor-pointer' : ''}`}
+                      className={`${isDarkMode ? 'bg-[#1e293b] border-white/10' : 'bg-white'} border ${themeClasses.border} p-4 md:p-5 rounded-sm shadow-2xl space-y-2 md:y-3 group hover:bg-blue-600/10 hover:border-blue-500/50 hover:-translate-y-1 transition-all duration-300 ${k.isInteractive ? 'cursor-pointer' : ''}`}
                     >
                       <h4 className={`text-xl md:text-3xl font-black italic tracking-tighter tabular-nums leading-none ${k.c === 'emerald' ? 'text-emerald-500' : k.c === 'rose' ? 'text-rose-500' : k.c === 'blue' ? 'text-blue-500' : themeClasses.textHeader}`}>{k.v}</h4>
                       <h4 className={`text-[7px] md:text-[8px] font-black ${themeClasses.textMuted} uppercase italic tracking-widest leading-none flex items-center gap-1.5`}>
@@ -576,17 +594,21 @@ const App: React.FC = () => {
                     <div className="flex-none flex justify-between items-start mb-6 md:mb-10">
                       <div className="space-y-1">
                         <h3 className={`text-lg md:text-xl font-black italic uppercase tracking-tighter ${themeClasses.textHeader}`}>Histórico de <span className="text-blue-600">Demanda</span></h3>
-                        <p className={`text-[8px] md:text-[9px] font-black ${themeClasses.textMuted} uppercase italic tracking-widest`}>Atendimentos por dia</p>
+                        <p className={`text-[8px] md:text-[9px] font-black ${themeClasses.textMuted} uppercase italic tracking-widest`}>Atendimentos por dia (Clique nas barras para detalhes)</p>
                       </div>
                       <TrendingUp className="text-blue-500/20 md:size-[32px]" size={24} />
                     </div>
                     <div className="flex-1 min-h-0">
                       <ResponsiveContainer width="100%" height="100%">
-                        <BarChart data={analyticsData.chartData} margin={{ top: 20, right: 30, left: 0, bottom: 40 }}>
+                        <BarChart 
+                          data={analyticsData.chartData} 
+                          margin={{ top: 20, right: 30, left: 0, bottom: 50 }}
+                          onClick={(data) => data && data.activePayload && handleBarClick(data.activePayload[0].payload)}
+                        >
                           <defs>
                             <linearGradient id="barGradient" x1="0" y1="0" x2="0" y2="1">
                               <stop offset="0%" stopColor="#3b82f6" stopOpacity={1}/>
-                              <stop offset="100%" stopColor="#1d4ed8" stopOpacity={0.7}/>
+                              <stop offset="100%" stopColor="#1e40af" stopOpacity={0.8}/>
                             </linearGradient>
                           </defs>
                           <CartesianGrid strokeDasharray="3 3" stroke={isDarkMode ? "#ffffff05" : "#00000005"} vertical={false} />
@@ -594,9 +616,7 @@ const App: React.FC = () => {
                             dataKey="name" 
                             stroke={isDarkMode ? "#64748b" : "#94a3b8"} 
                             fontSize={9} 
-                            height={60}
-                            fontStyle="italic" 
-                            dy={10} 
+                            height={70}
                             axisLine={false} 
                             tickLine={false}
                             tick={(props) => {
@@ -604,10 +624,10 @@ const App: React.FC = () => {
                               const item = analyticsData.chartData.find((d: any) => d.name === payload.value);
                               return (
                                 <g transform={`translate(${x},${y})`}>
-                                  <text x={0} y={15} textAnchor="middle" fill={isDarkMode ? "#cbd5e1" : "#475569"} fontSize={10} fontStyle="italic" fontWeight="900">
+                                  <text x={0} y={20} textAnchor="middle" fill={isDarkMode ? "#cbd5e1" : "#475569"} fontSize={11} fontStyle="italic" fontWeight="900">
                                     {payload.value}
                                   </text>
-                                  <text x={0} y={32} textAnchor="middle" fill={isDarkMode ? "#60a5fa" : "#2563eb"} fontSize={9} fontStyle="italic" fontWeight="bold" opacity={0.8}>
+                                  <text x={0} y={42} textAnchor="middle" fill={isDarkMode ? "#60a5fa" : "#2563eb"} fontSize={10} fontStyle="italic" fontWeight="bold" opacity={0.9}>
                                     {item?.weekday?.toUpperCase()}
                                   </text>
                                 </g>
@@ -615,8 +635,27 @@ const App: React.FC = () => {
                             }}
                           />
                           <YAxis stroke={isDarkMode ? "#64748b" : "#94a3b8"} fontSize={9} axisLine={false} tickLine={false} />
-                          <Tooltip contentStyle={{backgroundColor: isDarkMode ? '#1e293b' : '#ffffff', border: `1px solid ${isDarkMode ? '#334155' : '#e2e8f0'}`, fontSize: '9px', color: isDarkMode ? '#fff' : '#000'}} cursor={{fill: isDarkMode ? 'white' : 'blue', opacity: 0.05}} />
-                          <Bar dataKey="voos" fill="url(#barGradient)" radius={[4, 4, 0, 0]} barSize={35}>
+                          <Tooltip 
+                            contentStyle={{backgroundColor: isDarkMode ? '#1e293b' : '#ffffff', border: `1px solid ${isDarkMode ? '#334155' : '#e2e8f0'}`, fontSize: '9px', color: isDarkMode ? '#fff' : '#000'}} 
+                            cursor={{fill: 'white', opacity: 0.05}} 
+                          />
+                          <ReferenceLine 
+                            y={averageFlights} 
+                            stroke="#ffffff" 
+                            strokeDasharray="4 4" 
+                            label={{ 
+                              position: 'top', 
+                              value: `MÉDIA: ${averageFlights.toFixed(1)}`, 
+                              fill: '#ffffff', 
+                              fontSize: 10, 
+                              fontWeight: '900', 
+                              fontStyle: 'italic' 
+                            }} 
+                          />
+                          <Bar dataKey="voos" radius={[4, 4, 0, 0]} barSize={35} style={{ cursor: 'pointer' }}>
+                            {analyticsData.chartData.map((entry: any, index: number) => (
+                              <Cell key={`cell-${index}`} fill="url(#barGradient)" />
+                            ))}
                             <LabelList dataKey="voos" position="top" fill={isDarkMode ? "#ffffff" : "#2563eb"} style={{fontSize: '11px', fontWeight: '900', fontStyle: 'italic'}} dy={-10} />
                           </Bar>
                         </BarChart>
@@ -901,6 +940,107 @@ const App: React.FC = () => {
         </div>
       )}
 
+      {/* DAY DETAILS MODAL */}
+      {isDayDetailsModalOpen && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/90 backdrop-blur-md" onClick={() => setIsDayDetailsModalOpen(false)}></div>
+          <div className={`relative w-full max-w-4xl max-h-[90vh] ${themeClasses.bgCard} border ${themeClasses.border} shadow-2xl flex flex-col rounded-sm animate-in zoom-in-95 duration-200 overflow-hidden`}>
+            <div className="flex justify-between items-center p-6 border-b border-white/10 bg-blue-600/5">
+              <div className="flex items-center gap-4">
+                <div className="p-3 bg-blue-600 rounded-sm shadow-lg shadow-blue-500/20 text-white">
+                  <Calendar size={24} />
+                </div>
+                <div>
+                  <h3 className="text-2xl font-black italic uppercase tracking-tighter leading-none">Resumo Diário</h3>
+                  <p className="text-[10px] font-black text-blue-500 uppercase tracking-widest mt-1 italic">{selectedDayDateFormatted}</p>
+                </div>
+              </div>
+              <button onClick={() => setIsDayDetailsModalOpen(false)} className="p-2 hover:bg-white/5 rounded-full transition-colors">
+                <X size={24} />
+              </button>
+            </div>
+            
+            <div className="flex-1 overflow-y-auto p-6 md:p-8 custom-scrollbar space-y-8">
+              {/* Stats Row */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className={`${isDarkMode ? 'bg-[#0f172a]/50' : 'bg-slate-50'} border ${themeClasses.border} p-6 rounded-sm text-center`}>
+                  <p className="text-4xl font-black italic tracking-tighter text-blue-500">{selectedDayReports.reduce((acc, r) => acc + (r.voos?.length || 0), 0)}</p>
+                  <p className={`text-[8px] font-black ${themeClasses.textMuted} uppercase tracking-widest italic mt-1`}>Total de Atendimentos</p>
+                </div>
+                <div className={`${isDarkMode ? 'bg-[#0f172a]/50' : 'bg-slate-50'} border ${themeClasses.border} p-6 rounded-sm text-center`}>
+                  <p className="text-4xl font-black italic tracking-tighter text-emerald-500">{selectedDayReports.length}</p>
+                  <p className={`text-[8px] font-black ${themeClasses.textMuted} uppercase tracking-widest italic mt-1`}>Turnos Consolidados</p>
+                </div>
+                <div className={`${isDarkMode ? 'bg-[#0f172a]/50' : 'bg-slate-50'} border ${themeClasses.border} p-6 rounded-sm text-center`}>
+                  <p className="text-4xl font-black italic tracking-tighter text-amber-500">{selectedDayReports.filter(r => r.teve_falta || r.teve_atestado).length}</p>
+                  <p className={`text-[8px] font-black ${themeClasses.textMuted} uppercase tracking-widest italic mt-1`}>Alerta de RH</p>
+                </div>
+              </div>
+
+              {/* Pendencies & Occurrences Section */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div className={`${isDarkMode ? 'bg-amber-500/5' : 'bg-amber-50'} border border-amber-500/20 p-6 rounded-sm space-y-4`}>
+                  <h4 className="text-[11px] font-black uppercase italic tracking-widest text-amber-500 flex items-center gap-2">
+                    <AlertCircle size={14} /> Pendências do Dia
+                  </h4>
+                  <div className="space-y-4">
+                    {selectedDayReports.map((r, i) => (
+                      <div key={i} className="border-l-2 border-amber-500/30 pl-4 py-1">
+                        <p className="text-[8px] font-black text-amber-600 uppercase italic mb-1">Turno {r.turno.toUpperCase()} ({r.lider})</p>
+                        <p className={`text-xs font-bold italic ${isDarkMode ? 'text-slate-300' : 'text-slate-700'}`}>{r.descricao_pendencias || "Nenhuma registrada"}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div className={`${isDarkMode ? 'bg-rose-500/5' : 'bg-rose-50'} border border-rose-500/20 p-6 rounded-sm space-y-4`}>
+                  <h4 className="text-[11px] font-black uppercase italic tracking-widest text-rose-500 flex items-center gap-2">
+                    <ShieldAlert size={14} /> Ocorrências do Dia
+                  </h4>
+                  <div className="space-y-4">
+                    {selectedDayReports.map((r, i) => (
+                      <div key={i} className="border-l-2 border-rose-500/30 pl-4 py-1">
+                        <p className="text-[8px] font-black text-rose-600 uppercase italic mb-1">Turno {r.turno.toUpperCase()} ({r.lider})</p>
+                        <p className={`text-xs font-bold italic ${isDarkMode ? 'text-slate-300' : 'text-slate-700'}`}>{r.descricao_ocorrencias || "Não"}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Full Logs for the Day */}
+              <div className="space-y-4">
+                <h4 className={`text-[11px] font-black uppercase italic tracking-widest ${themeClasses.textMuted} flex items-center gap-2`}>
+                  <ListTodo size={14} /> Histórico de Voos do Dia
+                </h4>
+                <div className="space-y-3">
+                  {selectedDayReports.map((r, rIdx) => 
+                    r.voos?.map((v: any, vIdx: number) => (
+                      <div key={`${rIdx}-${vIdx}`} className={`${isDarkMode ? 'bg-[#1e293b]' : 'bg-white'} border ${themeClasses.border} p-4 flex justify-between items-center rounded-sm hover:border-blue-500/30 transition-all group`}>
+                        <div className="flex items-center gap-4">
+                          <div className="text-blue-500 opacity-30 group-hover:opacity-100 transition-opacity"><Plane size={20} /></div>
+                          <div>
+                            <p className="text-lg font-black italic tracking-tighter leading-none">{v.companhia}</p>
+                            <p className="text-[9px] font-black text-blue-500 uppercase italic mt-1.5">Turno: {r.turno.toUpperCase()} • Líder: {r.lider}</p>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <p className={`text-lg font-black italic tracking-tighter tabular-nums ${themeClasses.textHeader}`}>{calculateTurnaround(v.pouso, v.reboque)}</p>
+                          <p className={`text-[8px] font-black ${themeClasses.textMuted} uppercase italic`}>Solo: {v.pouso} - {v.reboque}</p>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            </div>
+            
+            <div className="p-6 border-t border-white/10 flex justify-end bg-blue-600/5">
+              <button onClick={() => setIsDayDetailsModalOpen(false)} className="bg-blue-600 px-8 py-3 text-[12px] font-black text-white uppercase italic rounded-sm shadow-xl shadow-blue-500/20 active:scale-95 transition-all">Fechar Detalhes</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <footer className={`flex-none ${isDarkMode ? 'bg-[#0f172a] border-white/10' : 'bg-white border-slate-200'} border-t px-4 md:px-8 py-3 flex justify-between items-center text-[7px] md:text-[8px] font-black uppercase ${themeClasses.textMuted} tracking-[0.2em] italic transition-colors duration-300`}>
         <div className="flex gap-4 md:gap-10">
            <span className="flex items-center gap-1.5 md:gap-2"><span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse shadow-lg shadow-emerald-500/30"></span> Sincronizado</span>
@@ -930,6 +1070,14 @@ const App: React.FC = () => {
         }
         @media screen and (max-width: 768px) {
           input, select, textarea { font-size: 16px !important; }
+        }
+        /* Custom styles for Recharts clickability */
+        .recharts-bar-rectangle {
+          transition: transform 0.2s ease, opacity 0.2s ease;
+        }
+        .recharts-bar-rectangle:hover {
+          transform: scaleY(1.02);
+          opacity: 0.9;
         }
       `}</style>
     </div>
