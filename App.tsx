@@ -110,8 +110,11 @@ const App: React.FC = () => {
   const [formPendencias, setFormPendencias] = useState('');
   const [formOcorrencias, setFormOcorrencias] = useState('');
   const [formRentals, setFormRentals] = useState<{ equipamento: string; inicio: string; fim: string }[]>([]);
-  const [formGseOut, setFormGseOut] = useState({ ativo: false, prefixo: '', motivo: '' });
-  const [formGseIn, setFormGseIn] = useState({ ativo: false, prefixo: '' });
+  
+  // Novos estados para múltiplos equipamentos GSE
+  const [formGseOuts, setFormGseOuts] = useState<{ prefixo: string; motivo: string }[]>([]);
+  const [formGseIns, setFormGseIns] = useState<{ prefixo: string }[]>([]);
+  
   const [formFlights, setFormFlights] = useState<(Partial<Flight> & { manual_name?: string })[]>([
     { companhia: '', numero: 'S/N', pouso: '', reboque: '', manual_name: '' }
   ]);
@@ -126,8 +129,8 @@ const App: React.FC = () => {
     setFormPendencias('');
     setFormOcorrencias('');
     setFormRentals([]);
-    setFormGseOut({ ativo: false, prefixo: '', motivo: '' });
-    setFormGseIn({ ativo: false, prefixo: '' });
+    setFormGseOuts([]);
+    setFormGseIns([]);
     setFormFlights([{ companhia: '', numero: 'S/N', pouso: '', reboque: '', manual_name: '' }]);
   }, []);
 
@@ -145,6 +148,23 @@ const App: React.FC = () => {
     const updated = [...formRentals];
     updated[index] = { ...updated[index], [field]: value };
     setFormRentals(updated);
+  };
+
+  // Funções para GSE Multiplo
+  const handleAddGseOut = () => setFormGseOuts([...formGseOuts, { prefixo: '', motivo: '' }]);
+  const handleRemoveGseOut = (index: number) => setFormGseOuts(formGseOuts.filter((_, i) => i !== index));
+  const handleGseOutChange = (index: number, field: string, value: string) => {
+    const updated = [...formGseOuts];
+    updated[index] = { ...updated[index], [field]: value };
+    setFormGseOuts(updated);
+  };
+
+  const handleAddGseIn = () => setFormGseIns([...formGseIns, { prefixo: '' }]);
+  const handleRemoveGseIn = (index: number) => setFormGseIns(formGseIns.filter((_, i) => i !== index));
+  const handleGseInChange = (index: number, field: string, value: string) => {
+    const updated = [...formGseIns];
+    updated[index] = { ...updated[index], [field]: value };
+    setFormGseIns(updated);
   };
 
   const fetchData = useCallback(async (isSilent = false) => {
@@ -288,6 +308,10 @@ const App: React.FC = () => {
         fim: r.fim || null
       }));
 
+      // Preparação para salvar múltiplos GSE
+      const gseOutPrefixos = formGseOuts.map(i => i.prefixo).filter(Boolean);
+      const gseInPrefixos = formGseIns.map(i => i.prefixo).filter(Boolean);
+
       const reportPayload = {
         data: formDate,
         turno: formShift === 'manha' ? 'manhã' : formShift,
@@ -300,11 +324,14 @@ const App: React.FC = () => {
         descricao_ocorrencias: formOcorrencias || "Não",
         locacoes: locacoesParaSalvar,
         voos: voosParaSalvar,
-        tem_equipamento_enviado: formGseOut.ativo,
-        equipamento_enviado_nome: formGseOut.ativo ? formGseOut.prefixo : null,
-        equipamento_enviado_motivo: formGseOut.ativo ? formGseOut.motivo : null,
-        tem_equipamento_retornado: formGseIn.ativo,
-        equipamento_retornado_nome: formGseIn.ativo ? formGseIn.prefixo : null
+        
+        // Salvamos os múltiplos como strings separadas por vírgula para as colunas existentes
+        tem_equipamento_enviado: gseOutPrefixos.length > 0,
+        equipamento_enviado_nome: gseOutPrefixos.join(', '),
+        equipamento_enviado_motivo: formGseOuts.map(i => `${i.prefixo}: ${i.motivo}`).join(' | '),
+        
+        tem_equipamento_retornado: gseInPrefixos.length > 0,
+        equipamento_retornado_nome: gseInPrefixos.join(', ')
       };
 
       const { error: consolidatedErr } = await supabase
@@ -313,22 +340,24 @@ const App: React.FC = () => {
 
       if (consolidatedErr) throw consolidatedErr;
 
-      if (formGseOut.ativo && formGseOut.prefixo) {
+      // Atualizamos o status de cada equipamento de envio em lote ou loop
+      for (const prefixo of gseOutPrefixos) {
         await supabase
           .from('equipamentos')
           .update({ status: 'MANUTENCAO' })
-          .eq('prefixo', formGseOut.prefixo);
+          .eq('prefixo', prefixo);
       }
 
-      if (formGseIn.ativo && formGseIn.prefixo) {
+      // Atualizamos o status de cada equipamento de retorno
+      for (const prefixo of gseInPrefixos) {
         await supabase
           .from('equipamentos')
           .update({ status: 'OPERACIONAL' })
-          .eq('prefixo', formGseIn.prefixo);
+          .eq('prefixo', prefixo);
       }
 
       try {
-        const response = await fetch(WEBHOOK_URL, {
+        await fetch(WEBHOOK_URL, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(reportPayload)
@@ -509,7 +538,7 @@ const App: React.FC = () => {
                         {report.tem_equipamento_enviado ? (
                           <div className="space-y-3">
                             <p className="text-[8px] font-black text-rose-500/80 uppercase italic">Baixa Técnica</p>
-                            <h5 className={`text-3xl font-black italic tracking-tighter uppercase leading-none ${themeClasses.textHeader}`}>{report.equipamento_enviado_nome}</h5>
+                            <h5 className={`text-xl font-black italic tracking-tighter uppercase leading-tight ${themeClasses.textHeader}`}>{report.equipamento_enviado_nome}</h5>
                             <div className={`${isDarkMode ? 'bg-[#0f172a] border-rose-500/10' : 'bg-white border-rose-100'} p-3 border rounded-sm shadow-inner`}>
                               <p className="text-[10px] font-bold text-rose-500 italic">"{report.equipamento_enviado_motivo}"</p>
                             </div>
@@ -842,39 +871,72 @@ const App: React.FC = () => {
                          </div>
                        </div>
 
+                       {/* SEÇÃO 6: BAIXA TÉCNICA GSE (MULTIPLE) */}
                        <div className={`${isDarkMode ? 'bg-[#1e293b] border-white/10' : 'bg-white'} border ${themeClasses.border} p-5 md:p-6 shadow-2xl rounded-sm transition-colors duration-300`}>
                           <div className="flex justify-between items-center mb-6">
                              <h4 className="text-[12px] md:text-[11px] font-black italic uppercase text-rose-500">6 - Baixa Técnica GSE</h4>
-                             <button onClick={() => setFormGseOut({...formGseOut, ativo: !formGseOut.ativo})} className={`px-4 py-2 text-[10px] font-black uppercase italic rounded-sm transition-all ${formGseOut.ativo ? 'bg-rose-600 text-white shadow-xl shadow-rose-600/30' : (isDarkMode ? 'bg-slate-700 text-slate-500' : 'bg-slate-100 text-slate-400 shadow-inner')}`}>{formGseOut.ativo ? 'ENVIADO' : 'NÃO'}</button>
+                             <button onClick={handleAddGseOut} className="bg-rose-600 px-4 py-2 text-[10px] font-black uppercase italic rounded-sm shadow-xl shadow-rose-600/30 active:scale-95 transition-all text-white flex items-center gap-2">
+                                <Plus size={14}/> Novo Envio
+                             </button>
                           </div>
-                          {formGseOut.ativo && (
-                            <div className="space-y-4 animate-in slide-in-from-top-2">
-                               <div className="space-y-1">
-                                  <label className={`text-[8px] font-black ${themeClasses.textMuted} uppercase italic`}>Equipamento (Operacional)</label>
-                                  <select value={formGseOut.prefixo} onChange={e => setFormGseOut({...formGseOut, prefixo: e.target.value})} className={`${themeClasses.bgInput} border ${themeClasses.border} p-4 font-black ${isDarkMode ? 'text-white' : 'text-slate-900'} text-sm w-full outline-none appearance-none italic transition-colors duration-300 shadow-inner`}>
-                                     <option value="">-- Selecione o Equipamento --</option>
-                                     {fleetDetails.filter(e => e.status === 'OPERACIONAL').map(e => <option key={e.id} value={e.prefixo}>{e.prefixo} - {e.nome}</option>)}
-                                  </select>
-                               </div>
-                               <textarea placeholder="Motivo da baixa técnica..." value={formGseOut.motivo} onChange={e => setFormGseOut({...formGseOut, motivo: e.target.value})} rows={2} className={`${themeClasses.bgInput} border ${themeClasses.border} p-4 font-bold text-xs w-full italic outline-none ${isDarkMode ? 'text-white' : 'text-slate-900'} transition-colors duration-300 shadow-inner`} />
-                            </div>
-                          )}
+                          
+                          <div className="space-y-4">
+                            {formGseOuts.length > 0 ? formGseOuts.map((item, i) => (
+                              <div key={i} className={`${themeClasses.bgInput} border ${themeClasses.border} p-5 md:p-4 rounded-sm flex flex-col relative group shadow-inner animate-in slide-in-from-top-2`}>
+                                <button onClick={() => handleRemoveGseOut(i)} className="absolute -top-3 -right-3 md:-top-2 md:-right-2 bg-rose-600 p-2 md:p-1 rounded-full z-10 text-white shadow-xl shadow-black/40 transition-all opacity-0 group-hover:opacity-100">
+                                   <Trash2 size={16} className="md:size-3"/>
+                                </button>
+                                <div className="space-y-4">
+                                   <div className="space-y-1">
+                                      <label className={`text-[8px] font-black ${themeClasses.textMuted} uppercase italic`}>Equipamento (Operacional)</label>
+                                      <select value={item.prefixo} onChange={e => handleGseOutChange(i, 'prefixo', e.target.value)} className={`${isDarkMode ? 'bg-slate-900' : 'bg-white'} border-none p-4 md:p-2 font-black text-xs w-full outline-none focus:ring-1 focus:ring-rose-500 italic appearance-none transition-colors duration-300`}>
+                                         <option value="">-- Selecione o Equipamento --</option>
+                                         {fleetDetails.filter(e => e.status === 'OPERACIONAL').map(e => <option key={e.id} value={e.prefixo}>{e.prefixo} - {e.nome}</option>)}
+                                      </select>
+                                   </div>
+                                   <div className="space-y-1">
+                                      <label className={`text-[8px] font-black ${themeClasses.textMuted} uppercase italic`}>Motivo da Baixa</label>
+                                      <textarea placeholder="Descreva o problema técnico..." value={item.motivo} onChange={e => handleGseOutChange(i, 'motivo', e.target.value)} rows={2} className={`${isDarkMode ? 'bg-slate-900' : 'bg-white'} border-none p-4 md:p-2 font-bold text-xs w-full italic outline-none focus:ring-1 focus:ring-rose-500 transition-colors duration-300 shadow-inner`} />
+                                   </div>
+                                </div>
+                              </div>
+                            )) : (
+                              <div className={`py-8 text-center border-2 border-dashed ${themeClasses.border} rounded-sm opacity-20`}>
+                                <p className="text-[10px] font-black italic uppercase">Nenhuma baixa técnica neste turno</p>
+                              </div>
+                            )}
+                          </div>
                        </div>
 
+                       {/* SEÇÃO 7: RETORNO DE GSE (MULTIPLE) */}
                        <div className={`${isDarkMode ? 'bg-[#1e293b] border-white/10' : 'bg-white'} border ${themeClasses.border} p-5 md:p-6 shadow-2xl rounded-sm transition-colors duration-300`}>
                           <div className="flex justify-between items-center mb-6">
                              <h4 className="text-[12px] md:text-[11px] font-black italic uppercase text-emerald-500">7 - Retorno de GSE</h4>
-                             <button onClick={() => setFormGseIn({...formGseIn, ativo: !formGseIn.ativo})} className={`px-4 py-2 text-[10px] font-black uppercase italic rounded-sm transition-all ${formGseIn.ativo ? 'bg-emerald-600 text-white shadow-xl shadow-emerald-600/30' : (isDarkMode ? 'bg-slate-700 text-slate-500' : 'bg-slate-100 text-slate-400 shadow-inner')}`}>{formGseIn.ativo ? 'RETORNO' : 'NÃO'}</button>
+                             <button onClick={handleAddGseIn} className="bg-emerald-600 px-4 py-2 text-[10px] font-black uppercase italic rounded-sm shadow-xl shadow-emerald-600/30 active:scale-95 transition-all text-white flex items-center gap-2">
+                                <Plus size={14}/> Novo Retorno
+                             </button>
                           </div>
-                          {formGseIn.ativo && (
-                            <div className="animate-in slide-in-from-top-2 space-y-1">
-                               <label className={`text-[8px] font-black ${themeClasses.textMuted} uppercase italic`}>Equipamento (Em Manutenção)</label>
-                               <select value={formGseIn.prefixo} onChange={e => setFormGseIn({...formGseIn, prefixo: e.target.value})} className={`${themeClasses.bgInput} border ${themeClasses.border} p-4 font-black ${isDarkMode ? 'text-white' : 'text-slate-900'} text-sm w-full outline-none appearance-none italic transition-colors duration-300 shadow-inner`}>
-                                  <option value="">-- Selecione o Equipamento --</option>
-                                  {fleetDetails.filter(e => e.status === 'MANUTENCAO').map(e => <option key={e.id} value={e.prefixo}>{e.prefixo} - {e.nome}</option>)}
-                               </select>
-                            </div>
-                          )}
+                          
+                          <div className="space-y-4">
+                            {formGseIns.length > 0 ? formGseIns.map((item, i) => (
+                              <div key={i} className={`${themeClasses.bgInput} border ${themeClasses.border} p-5 md:p-4 rounded-sm flex flex-col relative group shadow-inner animate-in slide-in-from-top-2`}>
+                                <button onClick={() => handleRemoveGseIn(i)} className="absolute -top-3 -right-3 md:-top-2 md:-right-2 bg-rose-600 p-2 md:p-1 rounded-full z-10 text-white shadow-xl shadow-black/40 transition-all opacity-0 group-hover:opacity-100">
+                                   <Trash2 size={16} className="md:size-3"/>
+                                </button>
+                                <div className="space-y-1">
+                                   <label className={`text-[8px] font-black ${themeClasses.textMuted} uppercase italic`}>Equipamento (Em Manutenção)</label>
+                                   <select value={item.prefixo} onChange={e => handleGseInChange(i, 'prefixo', e.target.value)} className={`${isDarkMode ? 'bg-slate-900' : 'bg-white'} border-none p-4 md:p-2 font-black text-xs w-full outline-none focus:ring-1 focus:ring-emerald-500 italic appearance-none transition-colors duration-300`}>
+                                      <option value="">-- Selecione o Equipamento --</option>
+                                      {fleetDetails.filter(e => e.status === 'MANUTENCAO').map(e => <option key={e.id} value={e.prefixo}>{e.prefixo} - {e.nome}</option>)}
+                                   </select>
+                                </div>
+                              </div>
+                            )) : (
+                              <div className={`py-8 text-center border-2 border-dashed ${themeClasses.border} rounded-sm opacity-20`}>
+                                <p className="text-[10px] font-black italic uppercase">Nenhum equipamento retornando agora</p>
+                              </div>
+                            )}
+                          </div>
                        </div>
                     </div>
                  </div>
