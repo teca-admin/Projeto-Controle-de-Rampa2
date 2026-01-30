@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { 
   Plane, Wrench, Clock, AlertCircle, CheckCircle2, Calendar, 
@@ -20,6 +21,11 @@ import {
 const WEBHOOK_URL = 'https://teca-admin-n8n.ly7t0m.easypanel.host/webhook/e4eb976b-e3b7-40e7-b069-56c3162c9f70';
 
 // --- HELPERS ---
+const getLocalDateString = () => {
+  const now = new Date();
+  return now.toLocaleDateString('en-CA'); // Retorna YYYY-MM-DD local
+};
+
 const timeToMinutes = (time?: any): number => {
   if (typeof time !== 'string' || !time) return 0;
   try {
@@ -79,15 +85,15 @@ const App: React.FC = () => {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [selectedDate, setSelectedDate] = useState<string>(getLocalDateString());
   const [selectedShift, setSelectedShift] = useState<'manha' | 'tarde' | 'noite'>('manha');
   
   const [analyticsShift, setAnalyticsShift] = useState<'todos' | 'manha' | 'tarde' | 'noite'>('todos');
   const [analyticsAirline, setAnalyticsAirline] = useState<string>('todos');
   const [startDate, setStartDate] = useState<string>(() => {
-    const d = new Date(); d.setDate(d.getDate() - 30); return d.toISOString().split('T')[0];
+    const d = new Date(); d.setDate(d.getDate() - 30); return d.toLocaleDateString('en-CA');
   });
-  const [endDate, setEndDate] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [endDate, setEndDate] = useState<string>(getLocalDateString());
 
   const [report, setReport] = useState<ShiftReport | null>(null);
   const [fleetStats, setFleetStats] = useState<FleetStat[]>([]);
@@ -103,7 +109,7 @@ const App: React.FC = () => {
   });
 
   // Form State
-  const [formDate, setFormDate] = useState(new Date().toISOString().split('T')[0]);
+  const [formDate, setFormDate] = useState(getLocalDateString());
   const [formShift, setFormShift] = useState<'manha' | 'tarde' | 'noite'>('manha');
   const [formLeader, setFormLeader] = useState('');
   const [formHR, setFormHR] = useState({ falta: false, atestado: false, compensacao: false, saida_antecipada: false });
@@ -119,7 +125,7 @@ const App: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
 
   const resetForm = useCallback(() => {
-    setFormDate(new Date().toISOString().split('T')[0]);
+    setFormDate(getLocalDateString());
     setFormShift('manha');
     setFormLeader('');
     setFormHR({ falta: false, atestado: false, compensacao: false, saida_antecipada: false });
@@ -400,11 +406,11 @@ const App: React.FC = () => {
              <div className={`hidden md:flex items-center ${isDarkMode ? 'bg-[#334155]' : 'bg-slate-100'} border ${themeClasses.border} rounded-sm divide-x ${isDarkMode ? 'divide-white/10' : 'divide-slate-200'}`}>
                 <div className="flex items-center px-3 py-1.5 gap-2">
                   <ChevronLeft size={16} className={`${themeClasses.textMuted} cursor-pointer hover:text-blue-500 transition-colors`} onClick={() => {
-                     const d = new Date(selectedDate); d.setDate(d.getDate() - 1); setSelectedDate(d.toISOString().split('T')[0]);
+                     const d = new Date(selectedDate + 'T12:00:00'); d.setDate(d.getDate() - 1); setSelectedDate(d.toLocaleDateString('en-CA'));
                   }} />
                   <input type="date" value={selectedDate} onChange={e => setSelectedDate(e.target.value)} className={`bg-transparent border-none text-[11px] font-black ${isDarkMode ? 'text-white' : 'text-slate-900'} p-0 uppercase focus:ring-0`} />
                   <ChevronRight size={16} className={`${themeClasses.textMuted} cursor-pointer hover:text-blue-500 transition-colors`} onClick={() => {
-                     const d = new Date(selectedDate); d.setDate(d.getDate() + 1); setSelectedDate(d.toISOString().split('T')[0]);
+                     const d = new Date(selectedDate + 'T12:00:00'); d.setDate(d.getDate() + 1); setSelectedDate(d.toLocaleDateString('en-CA'));
                   }} />
                 </div>
                 <div className="flex">
@@ -603,7 +609,8 @@ const App: React.FC = () => {
                         <BarChart 
                           data={analyticsData.chartData} 
                           margin={{ top: 20, right: 30, left: 0, bottom: 50 }}
-                          onClick={(data) => data && data.activePayload && handleBarClick(data.activePayload[0].payload)}
+                          // Fix: Use 'any' to avoid TypeScript errors with Recharts mouse event payload structure
+                          onClick={(data: any) => data && data.activePayload && handleBarClick(data.activePayload[0].payload)}
                         >
                           <defs>
                             <linearGradient id="barGradient" x1="0" y1="0" x2="0" y2="1">
@@ -718,10 +725,6 @@ const App: React.FC = () => {
             <div className="animate-in slide-in-from-bottom-5 duration-500 h-full flex flex-col overflow-hidden pb-4">
                <div className="flex-1 overflow-y-auto pr-1 md:pr-2 custom-scrollbar space-y-6 md:space-y-8">
                  <div className={`${isDarkMode ? 'bg-[#1e293b] border-white/10' : 'bg-white'} border ${themeClasses.border} p-5 md:p-8 shadow-2xl flex flex-col md:flex-row md:flex-wrap gap-5 md:gap-8 items-stretch md:items-end rounded-sm transition-colors duration-300`}>
-                    <div className="space-y-2">
-                       <label className="text-[10px] font-black text-blue-500 uppercase tracking-widest italic leading-none">Data do Turno</label>
-                       <input type="date" value={formDate} onChange={e => setFormDate(e.target.value)} className={`${themeClasses.bgInput} border ${themeClasses.border} p-4 md:p-3.5 font-black ${isDarkMode ? 'text-white' : 'text-slate-900'} rounded-sm text-xs md:text-sm focus:border-blue-500 outline-none transition-colors duration-300 shadow-inner`} />
-                    </div>
                     <div className="space-y-2">
                        <label className="text-[10px] font-black text-blue-500 uppercase tracking-widest italic leading-none">Turno</label>
                        <div className={`flex ${themeClasses.bgInput} p-1 border ${themeClasses.border} rounded-sm transition-colors duration-300 shadow-inner`}>
